@@ -1,0 +1,29 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+
+// Initialize an Express app
+const app = express();
+
+// Use body-parser middleware to parse JSON request bodies (just in case)
+app.use(bodyParser.json());
+
+// Define the Cloud Function that handles GET requests
+app.get('/', (req, res) => {
+  // Extract query parameters from the request URL
+  const { event_id, earning, currency, zipcode } = req.query;
+
+  // Check if `event_id` and `earning` are present (required)
+  if (!event_id || !earning) {
+    return res.status(400).send('Missing required query parameters: event_id or earning');
+  }
+
+  // Log the received parameters for debugging
+  console.log('Received Postback Data:', { event_id, earning, currency, zipcode });
+
+  // Simulate forwarding the data (you can replace this with actual forwarding logic)
+  // For now, let's assume we're simply sending a success response
+  res.status(200).send('Postback received successfully');
+});
+
+// Export the Express app as the Cloud Function
+exports.clickbankPostback = app;
