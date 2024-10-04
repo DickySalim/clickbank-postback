@@ -1,43 +1,112 @@
 const express = require('express');
-const axios = require('axios');  // Axios for HTTP requests
+const axios = require('axios');
+const { Firestore } = require('@google-cloud/firestore');
+const url = require('url');  // For parsing URLs
 
+const firestore = new Firestore();
 const app = express();
 
+// Cloud Function to handle GET requests
 app.get('/', async (req, res) => {
   const { event_id, earning, currency, zipcode } = req.query;
 
+  // Log the incoming request data
+  console.log('Received Request:', { event_id, earning, currency, zipcode });
+
+  // Validate incoming parameters
   if (!event_id || !earning) {
+    console.log('Missing required query parameters: event_id or earning');
     return res.status(400).send('Missing required query parameters: event_id or earning');
   }
 
   try {
-    // Build the simple URL
+    // Query Firestore to find the document with matching event_id in the fields
+    console.log(`Querying Firestore for event_id: ${event_id}`);
+    const querySnapshot = await firestore.collection('leadeventwarehouse')
+      .where('event_id', '==', event_id)  // Find the document where event_id matches
+      .get();
+
+    if (querySnapshot.empty) {
+      console.log(`No Firestore documents found for event_id: ${event_id}`);
+      return res.status(404).send('No Firestore documents found for event_id: ' + event_id);
+    }
+
+    // Assuming there's only one matching document
+    const doc = querySnapshot.docs[0];
+    const eventData = doc.data();
+    console.log('Fetched Event Data from Firestore:', eventData);
+
+    // Extract relevant data from Firestore document
+    const { country, city, state, ip_address, user_agent, ga_clientid, full_url } = eventData;
+
+    // Extract gclid and fbclid from full_url if present
+    const parsedUrl = new URL(full_url);
+    const gclid = parsedUrl.searchParams.get('gclid') || null;
+    const fbclid = parsedUrl.searchParams.get('fbclid') || null;
+
+    // Log extracted GCLID and FBCLID
+    console.log('Extracted GCLID:', gclid);
+    console.log('Extracted FBCLID:', fbclid);
+
+    // Enrich the received data with Firestore data
+    const enrichedData = {
+      event_id: event_id,
+      full_url: full_url,
+      earning: earning,
+      currency: currency,
+      zipcode: zipcode,
+      country: country,
+      city: city,
+      state: state,
+      ip_address: ip_address,
+      user_agent: user_agent,
+      ga_clientid: ga_clientid,
+      gclid: gclid,
+      fbclid: fbclid
+    };
+
+    // Log the enriched data before sending
+    console.log('Enriched Data to be sent to Webhook:', enrichedData);
+
+    // Build the Stape URL (webhook) to send the enriched data to sGTM
     const stapeURL = new URL('https://stape.wiseandsassy.com/postbackurl');
-    stapeURL.searchParams.append('event_id', event_id);
-    stapeURL.searchParams.append('earning', earning);
-    if (currency) stapeURL.searchParams.append('currency', currency);
-    if (zipcode) stapeURL.searchParams.append('zipcode', zipcode);
 
-    // Log the URL being sent for debugging
-    console.log('Sending request to:', stapeURL.toString());
+    // Append query parameters to the webhook URL
+    for (const [key, value] of Object.entries(enrichedData)) {
+      if (value !== undefined && value !== null) {
+        stapeURL.searchParams.append(key, value);
+      }
+    }
 
-    // Send the GET request (no extra headers or content-type)
+    // Log the final URL before sending the request
+    console.log('Final URL sent to Stape:', stapeURL.toString());
+
+    // Send the GET request to Stape (your webhook/sGTM endpoint)
     const response = await axios.get(stapeURL.toString());
 
-    // Log the response for debugging
-    console.log('Response status:', response.status);
-    console.log('Response data:', response.data);
+    // Log the response from Stape
+    console.log('Response from Stape (sGTM):', response.data);
 
-    res.status(200).send('Event forwarded successfully');
+    // Send success response back
+    res.status(200).json({
+      message: 'Event data successfully forwarded to Stape',
+      stapeResponse: response.data
+    });
+
   } catch (error) {
-    console.error('Error during request:', error.message);
+    // Log error details
+    console.error('Error occurred during the request:', error.message);
+
     if (error.response) {
       console.error('Error response status:', error.response.status);
       console.error('Error response data:', error.response.data);
     }
-    res.status(500).send('Failed to forward event');
+
+    // Send error response back
+    res.status(500).send('Failed to process and forward the event');
   }
 });
 
-// Export the Express app as the Cloud Function
+// No need to manually listen on a port when using Cloud Functions
+// Just export the Express app
 exports.clickbankPostback = app;
