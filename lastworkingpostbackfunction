@@ -1,28 +1,42 @@
 const express = require('express');
-const bodyParser = require('body-parser');
+const axios = require('axios');  // Axios for HTTP requests
 
-// Initialize an Express app
 const app = express();
 
-// Use body-parser middleware to parse JSON request bodies (just in case)
-app.use(bodyParser.json());
-
-// Define the Cloud Function that handles GET requests
-app.get('/', (req, res) => {
-  // Extract query parameters from the request URL
+app.get('/', async (req, res) => {
   const { event_id, earning, currency, zipcode } = req.query;
 
-  // Check if `event_id` and `earning` are present (required)
   if (!event_id || !earning) {
     return res.status(400).send('Missing required query parameters: event_id or earning');
   }
 
-  // Log the received parameters for debugging
-  console.log('Received Postback Data:', { event_id, earning, currency, zipcode });
+  try {
+    // Build the simple URL
+    const stapeURL = new URL('https://stape.wiseandsassy.com/postbackurl');
+    stapeURL.searchParams.append('event_id', event_id);
+    stapeURL.searchParams.append('earning', earning);
+    if (currency) stapeURL.searchParams.append('currency', currency);
+    if (zipcode) stapeURL.searchParams.append('zipcode', zipcode);
 
-  // Simulate forwarding the data (you can replace this with actual forwarding logic)
-  // For now, let's assume we're simply sending a success response
-  res.status(200).send('Postback received successfully');
+    // Log the URL being sent for debugging
+    console.log('Sending request to:', stapeURL.toString());
+
+    // Send the GET request (no extra headers or content-type)
+    const response = await axios.get(stapeURL.toString());
+
+    // Log the response for debugging
+    console.log('Response status:', response.status);
+    console.log('Response data:', response.data);
+
+    res.status(200).send('Event forwarded successfully');
+  } catch (error) {
+    console.error('Error during request:', error.message);
+    if (error.response) {
+      console.error('Error response status:', error.response.status);
+      console.error('Error response data:', error.response.data);
+    }
+    res.status(500).send('Failed to forward event');
+  }
 });
 
 // Export the Express app as the Cloud Function
